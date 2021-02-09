@@ -1,0 +1,67 @@
+name: Twilio - Deploy
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - production
+      - staging
+      - dev
+    paths:
+      - src/**
+
+env:
+  NODE_VERSION: '10.x' # set this to the node version to use
+  ACTIONS_ALLOW_UNSECURE_COMMANDS: 'true'
+
+jobs:
+  deploy-resources:
+    name: Deploy Resources
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 1
+      - name: Install Pulumi CLI
+        uses: pulumi/action-install-pulumi-cli@releases/v1
+      - name: Use Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v1
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: npm install
+        run: |
+          npm install
+      - name: Create variables
+        id: vars 
+        run: |
+          branch=${GITHUB_REF#refs/heads/} 
+          echo "BRANCH_NAME=${branch}" >> $GITHUB_ENV
+          array=( 
+            TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN FLEX_WORKSPACE_SID  
+            TWILIO_NUMBER RETRY_TIME_IN_MINUTES OVERRIDE_FLEX_WORKSPACE_EVENT_CALLBACK 
+            QUEUES_FOR_POWER_DIALERS
+          )
+          for i in "${array[@]}"
+          do
+            echo "${i}_VAR=${branch^^}_${i}" >> $GITHUB_ENV
+          done
+      - name: Check or create stack
+        shell: bash
+        run: pulumi stack init $BRANCH_NAME || echo "Stack already exists"
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          BRANCH_NAME: ${{ env.BRANCH_NAME }}
+      - name: Run Pulumi Up
+        shell: bash
+        run: npm run ci:deploy-resources
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          PULUMI_CI: up
+          PULUMI_ROOT: src/resources
+          BRANCH_NAME: ${{ env.BRANCH_NAME }} 
+          TWILIO_ACCOUNT_SID: ${{  secrets[env.TWILIO_ACCOUNT_SID_VAR] }}
+          TWILIO_AUTH_TOKEN: ${{  secrets[env.TWILIO_AUTH_TOKEN_VAR] }}
+          FLEX_WORKSPACE_SID: ${{  secrets[env.FLEX_WORKSPACE_SID_VAR] }}
+          TWILIO_NUMBER: ${{  secrets[env.TWILIO_NUMBER_VAR] }}
+          RETRY_TIME_IN_MINUTES: ${{  secrets[env.RETRY_TIME_IN_MINUTES_VAR] }}
+          OVERRIDE_FLEX_WORKSPACE_EVENT_CALLBACK: ${{  secrets[env.OVERRIDE_FLEX_WORKSPACE_EVENT_CALLBACK_VAR] }}
+          QUEUES_FOR_POWER_DIALERS: ${{  secrets[env.QUEUES_FOR_POWER_DIALERS_VAR] }}
